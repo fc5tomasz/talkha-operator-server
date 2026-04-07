@@ -1,0 +1,15 @@
+[Unit]
+Description=TalkHa Operator Server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/talkha-operator-server
+EnvironmentFile=/opt/talkha-operator-server/.env
+ExecStart=/opt/talkha-operator-server/.venv/bin/python /opt/talkha-operator-server/server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

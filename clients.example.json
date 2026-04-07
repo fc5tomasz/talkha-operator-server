@@ -1,0 +1,10 @@
+{
+  "clients": [
+    {
+      "client_id": "demo-client",
+      "registration_token": "replace-with-long-random-registration-token",
+      "enabled": true,
+      "description": "Klient testowy"
+    }
+  ]
+}
