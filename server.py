@@ -19,6 +19,7 @@ SERVER_PORT = int(os.environ.get("TALKHA_OPERATOR_PORT", "8787"))
 ADMIN_TOKEN = os.environ.get("TALKHA_OPERATOR_ADMIN_TOKEN", "")
 POLL_INTERVAL = int(os.environ.get("TALKHA_OPERATOR_POLL_INTERVAL", "10"))
 SESSION_TTL_SECONDS = int(os.environ.get("TALKHA_OPERATOR_SESSION_TTL", "1800"))
+SHARED_REGISTRATION_TOKEN = os.environ.get("TALKHA_SHARED_REGISTRATION_TOKEN", "").strip()
 
 CLIENT_SESSIONS: dict[str, dict[str, Any]] = {}
 JOB_QUEUES: dict[str, list[dict[str, Any]]] = {}
@@ -112,7 +113,8 @@ async def register(request: web.Request) -> web.Response:
     registration_token = payload.get("registration_token", "")
     clients = _load_clients()
     client = clients.get(client_id)
-    if not client or not client.get("enabled", True) or registration_token != client.get("registration_token", ""):
+    expected_token = (client or {}).get("registration_token", "") or SHARED_REGISTRATION_TOKEN
+    if not client or not client.get("enabled", True) or not expected_token or registration_token != expected_token:
         _write_audit("register_failed", {"client_id": client_id, "ip": _client_ip(request)})
         return _json({"ok": False, "error": "registration failed"}, status=401)
 
