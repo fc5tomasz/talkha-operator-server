@@ -3,7 +3,9 @@
     {
       "client_id": "demo-client",
       "enabled": true,
-      "description": "Klient testowy"
+      "description": "Klient testowy",
+      "communication_mode": "operator_reverse_http",
+      "communication_label": "Laptop operator"
     }
   ]
 }

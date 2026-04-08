@@ -211,6 +211,8 @@ async def list_clients(_: web.Request) -> web.Response:
                 "client_id": client_id,
                 "enabled": item.get("enabled", True),
                 "description": item.get("description", ""),
+                "communication_mode": item.get("communication_mode", "operator_reverse_http"),
+                "communication_label": item.get("communication_label", "Laptop operator"),
                 "online": bool(session),
                 "last_ip": session.get("last_ip", ""),
                 "last_seen": session.get("last_seen", 0),

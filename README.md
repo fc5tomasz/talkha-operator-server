@@ -15,6 +15,9 @@ Model aktualny:
 - klient wpisuje tylko `client_id` i `ha_token`
 - `operator_url` jest stale wpisany w add-on
 - `registration_token` jest wspolny i stale wpisany po obu stronach
+- kazdy klient ma osobny profil komunikacji w `clients.json`
+- operator wybiera klienta indywidualnie przez `client_id`
+- domyslny tryb komunikacji: `operator_reverse_http`
 
 Ten katalog jest oddzielny od repo strony `ha-uslugi`.
 Nie nalezy wdrazac go do repo GitHub Pages ani mieszac z publika strony.
