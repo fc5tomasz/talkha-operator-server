@@ -99,6 +99,16 @@ def _session_ok(client_id: str, session_token: str) -> bool:
     return True
 
 
+def _session_snapshot(client_id: str) -> dict[str, Any]:
+    session = CLIENT_SESSIONS.get(client_id)
+    if not session:
+        return {}
+    if int(time.time()) - int(session.get("last_seen", 0)) > SESSION_TTL_SECONDS:
+        CLIENT_SESSIONS.pop(client_id, None)
+        return {}
+    return session
+
+
 @web.middleware
 async def auth_middleware(request: web.Request, handler):
     if _public_path(request.path):
@@ -109,10 +119,11 @@ async def auth_middleware(request: web.Request, handler):
 
 
 async def health(_: web.Request) -> web.Response:
+    clients_online = sorted(client_id for client_id in list(CLIENT_SESSIONS.keys()) if _session_snapshot(client_id))
     return _json(
         {
             "ok": True,
-            "clients_online": sorted(CLIENT_SESSIONS.keys()),
+            "clients_online": clients_online,
             "queued_jobs": {client_id: len(queue) for client_id, queue in JOB_QUEUES.items()},
         }
     )
@@ -225,7 +236,7 @@ async def list_clients(_: web.Request) -> web.Response:
     configured = _load_clients()
     rows = []
     for client_id, item in configured.items():
-        session = CLIENT_SESSIONS.get(client_id, {})
+        session = _session_snapshot(client_id)
         rows.append(
             {
                 "client_id": client_id,
