@@ -24,6 +24,7 @@ SHARED_REGISTRATION_TOKEN = os.environ.get("TALKHA_SHARED_REGISTRATION_TOKEN", "
 CLIENT_SESSIONS: dict[str, dict[str, Any]] = {}
 JOB_QUEUES: dict[str, list[dict[str, Any]]] = {}
 JOB_RESULTS: dict[str, dict[str, Any]] = {}
+ACTIVE_JOBS: dict[str, dict[str, Any]] = {}
 
 
 def _json(data: dict[str, Any], status: int = 200) -> web.Response:
@@ -147,7 +148,13 @@ async def poll(request: web.Request) -> web.Response:
     CLIENT_SESSIONS[client_id]["last_seen"] = int(time.time())
     CLIENT_SESSIONS[client_id]["last_ip"] = _client_ip(request)
     queue = JOB_QUEUES.setdefault(client_id, [])
+    active_job = ACTIVE_JOBS.get(client_id)
+    if active_job:
+        return _json({"ok": True, "job": None})
+
     job = queue.pop(0) if queue else None
+    if job:
+        ACTIVE_JOBS[client_id] = job
     return _json({"ok": True, "job": job})
 
 
@@ -168,6 +175,9 @@ async def submit_result(request: web.Request) -> web.Response:
         "received_at": int(time.time()),
         "result": result,
     }
+    active_job = ACTIVE_JOBS.get(client_id)
+    if active_job and active_job.get("job_id") == job_id:
+        ACTIVE_JOBS.pop(client_id, None)
     CLIENT_SESSIONS[client_id]["last_seen"] = int(time.time())
     CLIENT_SESSIONS[client_id]["last_ip"] = _client_ip(request)
     _write_audit("job_result", {"client_id": client_id, "job_id": job_id, "ok": bool(result and result.get("ok"))})
@@ -214,6 +224,8 @@ async def list_clients(_: web.Request) -> web.Response:
                 "communication_mode": item.get("communication_mode", "operator_reverse_http"),
                 "communication_label": item.get("communication_label", "Laptop operator"),
                 "online": bool(session),
+                "queued_jobs": len(JOB_QUEUES.get(client_id, [])),
+                "active_job_id": (ACTIVE_JOBS.get(client_id) or {}).get("job_id", ""),
                 "last_ip": session.get("last_ip", ""),
                 "last_seen": session.get("last_seen", 0),
                 "hostname": session.get("hostname", ""),
