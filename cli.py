@@ -45,11 +45,14 @@ def main() -> int:
     if args.cmd == "clients":
         data = _call(f"{args.base_url}/api/v1/clients", args.admin_token)
     elif args.cmd == "job":
+        job_args = list(args.args)
+        if job_args[:1] == ["--"]:
+            job_args = job_args[1:]
         data = _call(
             f"{args.base_url}/api/v1/jobs",
             args.admin_token,
             method="POST",
-            payload={"client_id": args.client_id, "type": args.type, "args": args.args},
+            payload={"client_id": args.client_id, "type": args.type, "args": job_args},
         )
     else:
         data = _call(f"{args.base_url}/api/v1/jobs/{args.job_id}", args.admin_token)
