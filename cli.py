@@ -29,6 +29,16 @@ def main() -> int:
 
     sub.add_parser("clients", help="List clients")
 
+    add_client = sub.add_parser("add-client", help="Add or update client")
+    add_client.add_argument("--client-id", required=True)
+    add_client.add_argument("--description", default="")
+    add_client.add_argument("--communication-mode", default="operator_reverse_http")
+    add_client.add_argument("--communication-label", default="Laptop operator")
+    add_client.add_argument("--disabled", action="store_true")
+
+    remove_client = sub.add_parser("remove-client", help="Remove client")
+    remove_client.add_argument("--client-id", required=True)
+
     job = sub.add_parser("job", help="Queue job")
     job.add_argument("--client-id", required=True)
     job.add_argument("--type", choices=["talkha", "talkhalokal"], required=True)
@@ -44,6 +54,26 @@ def main() -> int:
 
     if args.cmd == "clients":
         data = _call(f"{args.base_url}/api/v1/clients", args.admin_token)
+    elif args.cmd == "add-client":
+        data = _call(
+            f"{args.base_url}/api/v1/clients/add",
+            args.admin_token,
+            method="POST",
+            payload={
+                "client_id": args.client_id,
+                "description": args.description,
+                "communication_mode": args.communication_mode,
+                "communication_label": args.communication_label,
+                "enabled": not args.disabled,
+            },
+        )
+    elif args.cmd == "remove-client":
+        data = _call(
+            f"{args.base_url}/api/v1/clients/remove",
+            args.admin_token,
+            method="POST",
+            payload={"client_id": args.client_id},
+        )
     elif args.cmd == "job":
         job_args = list(args.args)
         if job_args[:1] == ["--"]:

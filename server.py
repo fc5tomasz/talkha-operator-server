@@ -48,6 +48,16 @@ def _load_clients() -> dict[str, dict[str, Any]]:
     return result
 
 
+def _load_clients_raw() -> list[dict[str, Any]]:
+    raw = json.loads(CLIENTS_FILE.read_text(encoding="utf-8"))
+    clients = raw.get("clients", [])
+    return clients if isinstance(clients, list) else []
+
+
+def _save_clients_raw(clients: list[dict[str, Any]]) -> None:
+    CLIENTS_FILE.write_text(json.dumps({"clients": clients}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def _write_audit(event: str, payload: dict[str, Any]) -> None:
     entry = {
         "ts": int(time.time()),
@@ -236,6 +246,49 @@ async def list_clients(_: web.Request) -> web.Response:
     return _json({"ok": True, "clients": rows})
 
 
+async def add_client(request: web.Request) -> web.Response:
+    payload = await request.json()
+    client_id = str(payload.get("client_id", "")).strip()
+    if not client_id:
+        return _json({"ok": False, "error": "client_id required"}, status=400)
+
+    clients = _load_clients_raw()
+    existing_idx = next((idx for idx, item in enumerate(clients) if str(item.get("client_id", "")).strip() == client_id), None)
+    row = {
+        "client_id": client_id,
+        "enabled": bool(payload.get("enabled", True)),
+        "description": str(payload.get("description", "")).strip(),
+        "communication_mode": str(payload.get("communication_mode", "operator_reverse_http")).strip() or "operator_reverse_http",
+        "communication_label": str(payload.get("communication_label", "Laptop operator")).strip() or "Laptop operator",
+    }
+    if existing_idx is None:
+        clients.append(row)
+        action = "added"
+    else:
+        clients[existing_idx] = row
+        action = "updated"
+    _save_clients_raw(clients)
+    _write_audit("client_saved", {"client_id": client_id, "action": action})
+    return _json({"ok": True, "client": row, "action": action})
+
+
+async def remove_client(request: web.Request) -> web.Response:
+    payload = await request.json()
+    client_id = str(payload.get("client_id", "")).strip()
+    if not client_id:
+        return _json({"ok": False, "error": "client_id required"}, status=400)
+    clients = _load_clients_raw()
+    kept = [item for item in clients if str(item.get("client_id", "")).strip() != client_id]
+    if len(kept) == len(clients):
+        return _json({"ok": False, "error": "client not found"}, status=404)
+    _save_clients_raw(kept)
+    CLIENT_SESSIONS.pop(client_id, None)
+    JOB_QUEUES.pop(client_id, None)
+    ACTIVE_JOBS.pop(client_id, None)
+    _write_audit("client_removed", {"client_id": client_id})
+    return _json({"ok": True, "client_id": client_id, "removed": True})
+
+
 def main() -> None:
     _ensure_data_dir()
     app = web.Application(middlewares=[auth_middleware])
@@ -244,6 +297,8 @@ def main() -> None:
     app.router.add_post("/api/v1/poll", poll)
     app.router.add_post("/api/v1/result", submit_result)
     app.router.add_get("/api/v1/clients", list_clients)
+    app.router.add_post("/api/v1/clients/add", add_client)
+    app.router.add_post("/api/v1/clients/remove", remove_client)
     app.router.add_post("/api/v1/jobs", enqueue_job)
     app.router.add_get("/api/v1/jobs/{job_id}", get_result)
     web.run_app(app, host=SERVER_HOST, port=SERVER_PORT)
