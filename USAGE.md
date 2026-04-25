@@ -55,6 +55,15 @@ curl \
 ```bash
 python3 cli.py --admin-token replace-with-long-random-admin-token clients
 python3 cli.py --admin-token replace-with-long-random-admin-token job --client-id demo-client --type talkha -- --help
+python3 cli.py --admin-token replace-with-long-random-admin-token run-job --client-id demo-client --type talkhalokal -- automation-summary --target "Grzejnik off bufor on tryb lato" --match-by alias
 python3 cli.py --admin-token replace-with-long-random-admin-token result --job-id <job_id>
 python3 cli.py --admin-token replace-with-long-random-admin-token wait --job-id <job_id>
+```
+
+9. Na co dzien wygodniej uzywac wrappera `hx`:
+```bash
+hx doctor
+hx auto-summary "Grzejnik off bufor on tryb lato"
+hx thresholds sensor.czujnik_salon_temperature
+hx threshold-check sensor.czujnik_salon_temperature 24
 ```

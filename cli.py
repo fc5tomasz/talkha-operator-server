@@ -59,6 +59,64 @@ def _wait_for_job(base_url: str, admin_token: str, job_id: str, timeout: float, 
         time.sleep(poll_interval)
 
 
+def _extract_job_payload(data: dict) -> tuple[dict | None, str]:
+    result_wrapper = data.get("result") or {}
+    client_result = result_wrapper.get("result") or {}
+    stdout = str(client_result.get("stdout", "") or "").strip()
+    if not stdout:
+        return None, ""
+    try:
+        return json.loads(stdout), stdout
+    except Exception:
+        return None, stdout
+
+
+def _queue_job(base_url: str, admin_token: str, client_id: str, job_type: str, job_args: list[str]) -> dict:
+    return _call(
+        f"{base_url}/api/v1/jobs",
+        admin_token,
+        method="POST",
+        payload={"client_id": client_id, "type": job_type, "args": job_args},
+    )
+
+
+def _run_job_and_wait(
+    base_url: str,
+    admin_token: str,
+    client_id: str,
+    job_type: str,
+    job_args: list[str],
+    timeout: float,
+    interval: float,
+) -> tuple[dict, int]:
+    queued = _queue_job(base_url, admin_token, client_id, job_type, job_args)
+    job_id = str(queued.get("job_id", "") or "")
+    if not job_id:
+        return {
+            "ok": False,
+            "error": "missing job_id in queue response",
+            "queued": queued,
+        }, 4
+
+    waited, rc = _wait_for_job(base_url, admin_token, job_id, timeout, interval)
+    payload, stdout_text = _extract_job_payload(waited)
+    client_result = ((waited.get("result") or {}).get("result") or {})
+    final = dict(waited)
+    final["queued"] = queued
+    final["payload"] = payload
+    final["stdout_text"] = stdout_text
+    final["client_returncode"] = client_result.get("returncode")
+    final["client_stderr"] = client_result.get("stderr")
+
+    if rc != 0:
+        return final, rc
+    if client_result.get("returncode") not in (None, 0):
+        final.setdefault("ok", False)
+        final.setdefault("error", "client command failed")
+        return final, 4
+    return final, 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="TalkHa Operator CLI")
     parser.add_argument("--base-url", default=os.environ.get("TALKHA_OPERATOR_BASE_URL", "http://127.0.0.1:8787"))
@@ -81,6 +139,13 @@ def main() -> int:
     job.add_argument("--client-id", required=True)
     job.add_argument("--type", choices=["talkha", "talkhalokal"], required=True)
     job.add_argument("args", nargs=argparse.REMAINDER)
+
+    run_job = sub.add_parser("run-job", help="Queue job, wait, and return final payload")
+    run_job.add_argument("--client-id", required=True)
+    run_job.add_argument("--type", choices=["talkha", "talkhalokal"], required=True)
+    run_job.add_argument("--timeout", type=float, default=120.0)
+    run_job.add_argument("--interval", type=float, default=2.0)
+    run_job.add_argument("args", nargs=argparse.REMAINDER)
 
     result = sub.add_parser("result", help="Fetch job status/result")
     result.add_argument("--job-id", required=True)
@@ -125,13 +190,21 @@ def main() -> int:
             job_args = list(args.args)
             if job_args[:1] == ["--"]:
                 job_args = job_args[1:]
-            data = _call(
-                f"{args.base_url}/api/v1/jobs",
-                args.admin_token,
-                method="POST",
-                payload={"client_id": args.client_id, "type": args.type, "args": job_args},
-            )
+            data = _queue_job(args.base_url, args.admin_token, args.client_id, args.type, job_args)
             rc = 0
+        elif args.cmd == "run-job":
+            job_args = list(args.args)
+            if job_args[:1] == ["--"]:
+                job_args = job_args[1:]
+            data, rc = _run_job_and_wait(
+                args.base_url,
+                args.admin_token,
+                args.client_id,
+                args.type,
+                job_args,
+                args.timeout,
+                args.interval,
+            )
         elif args.cmd == "wait":
             data, rc = _wait_for_job(args.base_url, args.admin_token, args.job_id, args.timeout, args.interval)
         else:
