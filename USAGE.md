@@ -60,10 +60,23 @@ python3 cli.py --admin-token replace-with-long-random-admin-token result --job-i
 python3 cli.py --admin-token replace-with-long-random-admin-token wait --job-id <job_id>
 ```
 
-9. Na co dzien wygodniej uzywac wrappera `hx`:
+9. Na co dzien wygodniej uzywac wrappera `hx` z tego repo:
+```bash
+install -m 0755 ./hx ~/.local/bin/hx
+```
+
+10. Potem uzywaj `hx` normalnie:
 ```bash
 hx doctor
 hx auto-summary "Grzejnik off bufor on tryb lato"
 hx thresholds sensor.czujnik_salon_temperature
 hx threshold-check sensor.czujnik_salon_temperature 24
+hx upsert-automation ./moja_automatyzacja.yaml
+hx delete-automation "Alias automatyzacji"
+hx upsert-script ./moj_skrypt.yaml
+hx delete-script "Alias skryptu"
+hx helper-upsert input_boolean moj_helper ./helper.json
+hx helper-delete input_boolean moj_helper
+hx tx-summary TX_ID
+hx rollback-tx TX_ID
 ```

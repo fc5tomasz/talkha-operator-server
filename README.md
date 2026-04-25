@@ -20,7 +20,8 @@ Model aktualny:
 - operator wybiera klienta indywidualnie przez `client_id`
 - domyslny tryb komunikacji: `operator_reverse_http`
 - operator CLI ma juz `clients`, `add-client`, `remove-client`, `job`, `run-job`, `result`, `wait`
-- wrapper `hx` jest preferowany do codziennej pracy operatora, w tym `hx doctor`, `hx auto-summary`, `hx script-summary`, `hx thresholds` i `hx threshold-check`
+- wrapper `hx` jest preferowany do codziennej pracy operatora, w tym `hx doctor`, `hx auto-summary`, `hx script-summary`, `hx thresholds`, `hx threshold-check`, `hx tx-summary` oraz bezpieczne wrappery mutacji dla automatyzacji, skryptow i helperow
+- kanoniczna kopia wrappera `hx` jest trzymana w tym repo jako [hx](/home/tomasz/Codex/Klient/publish/talkha-operator-server/hx:1); lokalne `~/.local/bin/hx` powinno byc tylko zainstalowana kopia robocza tego pliku
 
 Ten katalog jest oddzielny od repo strony `ha-uslugi`.
 Nie nalezy wdrazac go do repo GitHub Pages ani mieszac z publika strony.
