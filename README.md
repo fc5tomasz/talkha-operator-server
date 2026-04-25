@@ -7,17 +7,20 @@ Zadania:
 - przyjmowanie stalego ruchu wychodzacego od klienta
 - kolejkowanie zadan `TalkHa` i `TalkHaLokal`
 - odbior wynikow
+- jawny status zadania `queued` / `running` / `completed`
 - audit log
 - zapis ostatniego IP klienta i czasu polaczenia
 - prosty operator CLI `cli.py`
 
 Model aktualny:
-- klient wpisuje tylko `client_id` i `ha_token`
-- `operator_url` jest stale wpisany w add-on
+- klient wpisuje `client_id`, `ha_token` i `operator_url`
+- `operator_url` moze wskazywac tunel, domene, DDNS albo inny osiagalny endpoint operatora
 - `registration_token` jest wspolny i stale wpisany po obu stronach
 - kazdy klient ma osobny profil komunikacji w `clients.json`
 - operator wybiera klienta indywidualnie przez `client_id`
 - domyslny tryb komunikacji: `operator_reverse_http`
+- operator CLI ma juz `clients`, `add-client`, `remove-client`, `job`, `result`, `wait`
+- wrapper `hx` jest preferowany do codziennej pracy operatora, w tym `hx doctor`
 
 Ten katalog jest oddzielny od repo strony `ha-uslugi`.
 Nie nalezy wdrazac go do repo GitHub Pages ani mieszac z publika strony.

@@ -19,9 +19,9 @@ python3 server.py
 
 4. W add-onie klienta wpisz:
 ```yaml
-operator_url: "https://twoj-serwer-operatora"
+ha_token: "TOKEN_HA_KLIENTA"
 client_id: "demo-client"
-registration_token: "replace-with-long-random-registration-token"
+operator_url: "https://twoj-serwer-operatora"
 ```
 
 5. Kolejkuj zadanie:
@@ -39,6 +39,11 @@ curl \
   http://127.0.0.1:8787/api/v1/jobs/<job_id>
 ```
 
+Odpowiedz zawiera teraz jawne pola:
+- `status`: `queued`, `running`, `completed`
+- `result_available`
+- `queue_position`
+
 7. Podejrzyj klientow i ostatnie IP:
 ```bash
 curl \
@@ -51,4 +56,5 @@ curl \
 python3 cli.py --admin-token replace-with-long-random-admin-token clients
 python3 cli.py --admin-token replace-with-long-random-admin-token job --client-id demo-client --type talkha -- --help
 python3 cli.py --admin-token replace-with-long-random-admin-token result --job-id <job_id>
+python3 cli.py --admin-token replace-with-long-random-admin-token wait --job-id <job_id>
 ```

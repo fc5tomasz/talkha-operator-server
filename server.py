@@ -18,17 +18,22 @@ SERVER_HOST = os.environ.get("TALKHA_OPERATOR_HOST", "127.0.0.1")
 SERVER_PORT = int(os.environ.get("TALKHA_OPERATOR_PORT", "8787"))
 ADMIN_TOKEN = os.environ.get("TALKHA_OPERATOR_ADMIN_TOKEN", "")
 POLL_INTERVAL = int(os.environ.get("TALKHA_OPERATOR_POLL_INTERVAL", "10"))
-SESSION_TTL_SECONDS = int(os.environ.get("TALKHA_OPERATOR_SESSION_TTL", "1800"))
+SESSION_TTL_SECONDS = int(os.environ.get("TALKHA_OPERATOR_SESSION_TTL", "45"))
 SHARED_REGISTRATION_TOKEN = os.environ.get("TALKHA_SHARED_REGISTRATION_TOKEN", "").strip()
 
 CLIENT_SESSIONS: dict[str, dict[str, Any]] = {}
 JOB_QUEUES: dict[str, list[dict[str, Any]]] = {}
 JOB_RESULTS: dict[str, dict[str, Any]] = {}
 ACTIVE_JOBS: dict[str, dict[str, Any]] = {}
+JOB_META: dict[str, dict[str, Any]] = {}
 
 
 def _json(data: dict[str, Any], status: int = 200) -> web.Response:
     return web.json_response(data, status=status, dumps=lambda x: json.dumps(x, ensure_ascii=False))
+
+
+def _now_ts() -> int:
+    return int(time.time())
 
 
 def _ensure_data_dir() -> None:
@@ -60,7 +65,7 @@ def _save_clients_raw(clients: list[dict[str, Any]]) -> None:
 
 def _write_audit(event: str, payload: dict[str, Any]) -> None:
     entry = {
-        "ts": int(time.time()),
+        "ts": _now_ts(),
         "event": event,
         "payload": payload,
     }
@@ -89,11 +94,23 @@ def _public_path(path: str) -> bool:
     return path in {"/health", "/api/v1/register", "/api/v1/poll", "/api/v1/result"}
 
 
+def _session_ttl(session: dict[str, Any]) -> int:
+    try:
+        poll_interval = int(session.get("poll_interval", POLL_INTERVAL))
+    except Exception:
+        poll_interval = POLL_INTERVAL
+    return max(SESSION_TTL_SECONDS, poll_interval * 3)
+
+
+def _session_expired(session: dict[str, Any]) -> bool:
+    return _now_ts() - int(session.get("last_seen", 0)) > _session_ttl(session)
+
+
 def _session_ok(client_id: str, session_token: str) -> bool:
     session = CLIENT_SESSIONS.get(client_id)
     if not session or session.get("session_token") != session_token:
         return False
-    if int(time.time()) - int(session.get("last_seen", 0)) > SESSION_TTL_SECONDS:
+    if _session_expired(session):
         CLIENT_SESSIONS.pop(client_id, None)
         return False
     return True
@@ -103,10 +120,33 @@ def _session_snapshot(client_id: str) -> dict[str, Any]:
     session = CLIENT_SESSIONS.get(client_id)
     if not session:
         return {}
-    if int(time.time()) - int(session.get("last_seen", 0)) > SESSION_TTL_SECONDS:
+    if _session_expired(session):
         CLIENT_SESSIONS.pop(client_id, None)
         return {}
     return session
+
+
+def _queue_position(client_id: str, job_id: str) -> int:
+    queue = JOB_QUEUES.get(client_id, [])
+    for idx, job in enumerate(queue, start=1):
+        if job.get("job_id") == job_id:
+            return idx
+    return 0
+
+
+def _job_snapshot(job_id: str) -> dict[str, Any] | None:
+    meta = JOB_META.get(job_id)
+    if meta is None:
+        return None
+
+    snapshot = dict(meta)
+    snapshot["queue_position"] = _queue_position(str(meta.get("client_id", "")), job_id)
+    result = JOB_RESULTS.get(job_id)
+    snapshot["result_available"] = result is not None
+    snapshot["result"] = result
+    if result is not None and not snapshot.get("completed_at"):
+        snapshot["completed_at"] = int(result.get("received_at", 0)) or 0
+    return snapshot
 
 
 @web.middleware
@@ -141,7 +181,7 @@ async def register(request: web.Request) -> web.Response:
         return _json({"ok": False, "error": "registration failed"}, status=401)
 
     session_token = secrets.token_urlsafe(32)
-    now = int(time.time())
+    now = _now_ts()
     client_ip = _client_ip(request)
     CLIENT_SESSIONS[client_id] = {
         "session_token": session_token,
@@ -152,6 +192,7 @@ async def register(request: web.Request) -> web.Response:
         "mode": payload.get("mode", "full"),
         "allow_mutations": payload.get("allow_mutations", True),
         "capabilities": payload.get("capabilities", []),
+        "poll_interval": int(POLL_INTERVAL),
     }
     JOB_QUEUES.setdefault(client_id, [])
     _write_audit("register_ok", {"client_id": client_id, "ip": client_ip, "hostname": payload.get("hostname", "")})
@@ -166,7 +207,7 @@ async def poll(request: web.Request) -> web.Response:
         _write_audit("poll_unauthorized", {"client_id": client_id, "ip": _client_ip(request)})
         return _json({"ok": False, "error": "unauthorized"}, status=401)
 
-    CLIENT_SESSIONS[client_id]["last_seen"] = int(time.time())
+    CLIENT_SESSIONS[client_id]["last_seen"] = _now_ts()
     CLIENT_SESSIONS[client_id]["last_ip"] = _client_ip(request)
     queue = JOB_QUEUES.setdefault(client_id, [])
     active_job = ACTIVE_JOBS.get(client_id)
@@ -176,6 +217,11 @@ async def poll(request: web.Request) -> web.Response:
     job = queue.pop(0) if queue else None
     if job:
         ACTIVE_JOBS[client_id] = job
+        meta = JOB_META.get(str(job.get("job_id", "")))
+        if meta is not None:
+            meta["status"] = "running"
+            meta["started_at"] = _now_ts()
+        _write_audit("job_started", {"client_id": client_id, "job_id": job.get("job_id", "")})
     return _json({"ok": True, "job": job})
 
 
@@ -191,15 +237,31 @@ async def submit_result(request: web.Request) -> web.Response:
     if not job_id:
         return _json({"ok": False, "error": "job_id required"}, status=400)
 
+    received_at = _now_ts()
     JOB_RESULTS[job_id] = {
         "client_id": client_id,
-        "received_at": int(time.time()),
+        "received_at": received_at,
         "result": result,
     }
+    meta = JOB_META.setdefault(
+        job_id,
+        {
+            "job_id": job_id,
+            "client_id": client_id,
+            "type": "",
+            "args": [],
+            "status": "completed",
+            "enqueued_at": 0,
+            "started_at": 0,
+            "completed_at": 0,
+        },
+    )
+    meta["status"] = "completed"
+    meta["completed_at"] = received_at
     active_job = ACTIVE_JOBS.get(client_id)
     if active_job and active_job.get("job_id") == job_id:
         ACTIVE_JOBS.pop(client_id, None)
-    CLIENT_SESSIONS[client_id]["last_seen"] = int(time.time())
+    CLIENT_SESSIONS[client_id]["last_seen"] = received_at
     CLIENT_SESSIONS[client_id]["last_ip"] = _client_ip(request)
     _write_audit("job_result", {"client_id": client_id, "job_id": job_id, "ok": bool(result and result.get("ok"))})
     return _json({"ok": True})
@@ -219,17 +281,27 @@ async def enqueue_job(request: web.Request) -> web.Response:
 
     job_id = secrets.token_urlsafe(12)
     job = {"job_id": job_id, "type": job_type, "args": args}
+    JOB_META[job_id] = {
+        "job_id": job_id,
+        "client_id": client_id,
+        "type": job_type,
+        "args": args,
+        "status": "queued",
+        "enqueued_at": _now_ts(),
+        "started_at": 0,
+        "completed_at": 0,
+    }
     JOB_QUEUES.setdefault(client_id, []).append(job)
     _write_audit("job_enqueued", {"client_id": client_id, "job_id": job_id, "type": job_type, "args": args})
-    return _json({"ok": True, "job_id": job_id, "queued_for": client_id})
+    return _json({"ok": True, "job_id": job_id, "queued_for": client_id, "status": "queued"})
 
 
 async def get_result(request: web.Request) -> web.Response:
     job_id = request.match_info["job_id"]
-    result = JOB_RESULTS.get(job_id)
-    if result is None:
-        return _json({"ok": False, "error": "result not found"}, status=404)
-    return _json({"ok": True, "job_id": job_id, "result": result})
+    snapshot = _job_snapshot(job_id)
+    if snapshot is None:
+        return _json({"ok": False, "error": "job not found"}, status=404)
+    return _json({"ok": True, **snapshot})
 
 
 async def list_clients(_: web.Request) -> web.Response:
